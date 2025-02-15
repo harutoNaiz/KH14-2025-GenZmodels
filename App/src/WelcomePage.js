@@ -13,8 +13,8 @@ const WelcomePage = () => {
         transition={{ duration: 0.5 }}
         className="text-center"
       >
-        <h3 className="text-6xl font-bold mb-4">RagAndUnlearn.ai</h3>
-        <p className="text-2xl mb-8">Craft Dynamic, Intelligent Chatbots for Your Organization</p>
+        <h3 className="text-6xl font-bold mb-4">AgentX</h3>
+        <p className="text-2xl mb-8">Craft Dynamic, Intelligent Agents for Your Organization</p>
       </motion.div>
 
       <motion.div
@@ -25,7 +25,7 @@ const WelcomePage = () => {
       >
         <FeatureCard
           icon={<Bot size={40} />}
-          title="Custom Chatbots"
+          title="Custom LLM"
           description="Tailor-made for your specific needs"
         />
         <FeatureCard
@@ -35,8 +35,8 @@ const WelcomePage = () => {
         />
         <FeatureCard
           icon={<Zap size={40} />}
-          title="Machine Unlearning"
-          description="Remove unwanted data effortlessly"
+          title="AI Agent"
+          description="Automate AI Agent creation"
         />
       </motion.div>
 
