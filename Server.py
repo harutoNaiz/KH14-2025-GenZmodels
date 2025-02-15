@@ -48,7 +48,7 @@ def login():
             return jsonify({"success": False, "message": "Invalid email or password"}), 401
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-
+        
 import PyPDF2
 import faiss
 import numpy as np
@@ -255,3 +255,123 @@ def get_user_llms():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/load-llm/<llm_id>', methods=['GET'])
+def load_llm(llm_id):
+    try:
+        # Get the LLM document from Firestore
+        llm_doc = db.collection('llms').document(llm_id).get()
+        
+        if not llm_doc.exists:
+            return jsonify({"error": "LLM not found"}), 404
+            
+        llm_data = llm_doc.to_dict()
+        
+        # Decode base64 data
+        faiss_data = base64.b64decode(llm_data['faissIndex'])
+        texts_data = base64.b64decode(llm_data['texts'])
+        
+        # Save to temp directory
+        with open(os.path.join(TEMP_DIR, "faiss_index.bin"), "wb") as f:
+            f.write(faiss_data)
+            
+        with open(os.path.join(TEMP_DIR, "texts.pkl"), "wb") as f:
+            f.write(texts_data)
+            
+        return jsonify({
+            "message": "LLM loaded successfully",
+            "llmName": llm_data['llmName']
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+from flask import send_file
+
+@app.route('/download-files/<file_type>', methods=['GET'])
+def download_files(file_type):
+    try:
+        if file_type not in ['faiss', 'texts']:
+            return jsonify({"error": "Invalid file type"}), 400
+            
+        file_path = os.path.join(TEMP_DIR, 
+            "faiss_index.bin" if file_type == 'faiss' else "texts.pkl")
+            
+        if not os.path.exists(file_path):
+            return jsonify({"error": "File not found"}), 404
+            
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=os.path.basename(file_path)
+        )
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/unlearn-data', methods=['POST'])
+def unlearn_data():
+    try:
+        data = request.json
+        text_to_unlearn = data.get('text')
+        llm_id = data.get('llmId')
+        user_email = data.get('userEmail')
+        
+        if not all([text_to_unlearn, llm_id, user_email]):
+            return jsonify({"error": "Missing required fields"}), 400
+            
+        # Load current FAISS index and texts
+        index, texts = load_data()
+        
+        # Create document processor for embeddings
+        processor = DocumentProcessor()
+        
+        # Find similar chunks to remove
+        text_embedding = processor.embedding_model.encode([text_to_unlearn])
+        D, I = index.search(text_embedding, len(texts))  # Search all texts
+        
+        # Remove similar chunks (you can adjust the similarity threshold)
+        similarity_threshold = 0.8
+        chunks_to_keep = []
+        embeddings_to_keep = []
+        
+        # Get embeddings for all texts
+        all_embeddings = processor.embedding_model.encode(texts)
+        
+        for i, text in enumerate(texts):
+            # Calculate cosine similarity
+            similarity = np.dot(all_embeddings[i], text_embedding[0]) / (
+                np.linalg.norm(all_embeddings[i]) * np.linalg.norm(text_embedding[0]))
+            
+            if similarity < similarity_threshold:
+                chunks_to_keep.append(text)
+                embeddings_to_keep.append(all_embeddings[i])
+        
+        # Create new FAISS index
+        new_index = initialize_faiss_index(EMBEDDING_DIM)
+        new_index.add(np.array(embeddings_to_keep))
+        
+        # Save updated data
+        save_data(new_index, chunks_to_keep)
+        
+        # Update in Firebase
+        with open(os.path.join(TEMP_DIR, "faiss_index.bin"), "rb") as f:
+            faiss_data = base64.b64encode(f.read()).decode('utf-8')
+            
+        with open(os.path.join(TEMP_DIR, "texts.pkl"), "rb") as f:
+            texts_data = base64.b64encode(f.read()).decode('utf-8')
+        
+        # Update Firestore document
+        db.collection('llms').document(llm_id).update({
+            'faissIndex': faiss_data,
+            'texts': texts_data,
+            'updatedAt': firestore.SERVER_TIMESTAMP
+        })
+        
+        return jsonify({"message": "Data successfully unlearned"}), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+if __name__ == '__main__':
+    app.run(debug=True)
