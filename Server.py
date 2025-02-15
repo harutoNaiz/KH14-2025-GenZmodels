@@ -48,7 +48,9 @@ def login():
             return jsonify({"success": False, "message": "Invalid email or password"}), 401
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-        
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import PyPDF2
 import faiss
 import numpy as np
@@ -98,9 +100,8 @@ class DocumentProcessor:
 def initialize_faiss_index(dimension):
     return faiss.IndexFlatL2(dimension)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 def setup_gemini():
-    genai.configure(api_key=GEMINI_API_KEY)
+    genai.configure(api_key="")
     return genai.GenerativeModel('gemini-pro')
 
 def save_data(index, texts):
@@ -372,6 +373,119 @@ def unlearn_data():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+import pickle
+import os
+import webbrowser
+from subprocess import Popen
+from typing import Dict, Any
+import cohere
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+cohere_api_key = os.getenv("COHERE_API_KEY")
+co = cohere.Client(api_key=cohere_api_key)
+
+genai.configure(api_key="AIzaSyAOZRzjgX6LSv6FuG3pCmg-kmXJ8guYIdk")
+
+def build_ai_agent(tasks: str, user_email: str) -> Dict[str, Any]:
+    """
+    Build an AI agent using Gemini API and RAG workflow based on specified tasks.
+    Generates and runs a Streamlit application.
+    """
+    try:
+        # Load the FAISS index and texts
+
+        # Create prompt for Gemini to generate the Streamlit app
+        prompt = f"""
+        Create a Streamlit application that implements the following task using RAG workflow:
+        {tasks}
+        
+        1. The application should include these part of code in the beginning
+        import google.generativeai as genai
+        # Initialize Gemini
+        genai.configure(api_key="")
+        model = genai.GenerativeModel('gemini-pro')
+
+        import faiss
+        Load FAISS for RAG
+        TEMP_DIR=r"D:\Sem-5\rak\temp_data"
+        def load_data():
+            index = faiss.read_index(os.path.join(TEMP_DIR, "faiss_index.bin"))
+            with open(os.path.join(TEMP_DIR, "texts.pkl"), "rb") as f:
+                texts = pickle.load(f)
+            return index, texts
+
+        2. Complete the code for specified task
+        3. Include proper error handling
+        4. Have a clean user interface
+        5. Display results appropriately for the task
+        
+        Return only the Python code without any explanations.
+        """
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Generate Streamlit code using Gemini
+        response = model.generate_content(prompt)
+        app_code = response.text
+        
+        # Add necessary imports and Gemini setup
+        filtered_lines = app_code.splitlines()[2:-2]
+
+        # Join the filtered lines back into a string
+        final_app_code = "\n".join(filtered_lines)
+        
+        # Save the generated Streamlit app
+        app_filepath = os.path.join(TEMP_DIR, f"agent_app_{user_email}.py")
+        with open(app_filepath, "w") as f:
+            f.write(final_app_code)
+        
+        # Run the Streamlit app
+        port = 8501  # Default Streamlit port
+        streamlit_cmd = f"python -m streamlit run {app_filepath} --server.port {port}"
+        Popen(streamlit_cmd, shell=True)
+        
+        # Open browser to the Streamlit app
+        webbrowser.open(f"http://localhost:{port}")
+            
+        return {
+            "status": "success",
+            "message": "AI agent built and launched successfully",
+            "app_filepath": app_filepath,
+            "app_url": f"http://localhost:{port}"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error building AI agent: {str(e)}"
+        }
+
+# Flask route
+@app.route('/build-agent', methods=['POST'])
+def build_agent_route():
+    data = request.json
+    tasks = data.get('tasks')
+    user_email = data.get('userEmail')
+    
+    if not all([tasks, user_email]):
+        return jsonify({"error": "Missing required fields"}), 400
+        
+    try:
+        result = build_ai_agent(tasks, user_email)
+        
+        if result["status"] == "success":
+            return jsonify({
+                "message": result["message"],
+                "app_url": result["app_url"]
+            }), 200
+        else:
+            return jsonify({"error": result["message"]}), 500
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
     
 if __name__ == '__main__':
     app.run(debug=True)
