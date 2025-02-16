@@ -10,6 +10,7 @@ import TestPage from './TestPage';
 import QueryPage from './Query';
 import ViewLLMPage from './viewllm';
 import './index.css';
+import BuildAgentPage from './buildagent';
 
 const App = () => {
   return (
@@ -24,6 +25,7 @@ const App = () => {
         <Route path="/test" element={<TestPage />} />
         <Route path="/query" element={<QueryPage />} />
         <Route path="/llm/:id" element={<ViewLLMPage />} />
+        <Route path="/build-agent/:id" element={<BuildAgentPage />} />
         </Routes>
     </Router>
   );

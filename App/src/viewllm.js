@@ -94,24 +94,13 @@ const ViewLLMPage = () => {
 
   const handleBuildAgent = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/build-agent/${id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userEmail: user.email
-        }),
-      });
-
-      if (response.ok) {
-        alert('AI Agent built successfully!');
-      } else {
-        alert('Error building AI Agent');
-      }
+      // Store current LLM ID in localStorage for use in agent building page
+      localStorage.setItem('currentLLMId', id);
+      // Navigate to the agent building page
+      navigate(`/build-agent/${id}`);
     } catch (error) {
       console.error('Error:', error);
-      alert('Error building AI Agent');
+      alert('Error navigating to agent builder');
     }
   };
 
