@@ -12,8 +12,9 @@ import PyPDF2
 app = Flask(__name__)
 CORS(app)
 
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 def setup_gemini():
-    genai.configure(api_key="AIzaSyAOZRzjgX6LSv6FuG3pCmg-kmXJ8guYIdk")
+    genai.configure(api_key=GEMINI_API_KEY)
     return genai.GenerativeModel('gemini-pro')
 
 def load_data():
