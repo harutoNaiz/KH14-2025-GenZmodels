@@ -101,7 +101,7 @@ def initialize_faiss_index(dimension):
     return faiss.IndexFlatL2(dimension)
 
 def setup_gemini():
-    genai.configure(api_key="")
+    genai.configure(api_key="AIzaSyAOZRzjgX6LSv6FuG3pCmg-kmXJ8guYIdk")
     return genai.GenerativeModel('gemini-pro')
 
 def save_data(index, texts):
@@ -373,119 +373,176 @@ def unlearn_data():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-import pickle
-import os
-import webbrowser
-from subprocess import Popen
-from typing import Dict, Any
-import cohere
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-cohere_api_key = os.getenv("COHERE_API_KEY")
-co = cohere.Client(api_key=cohere_api_key)
-
-genai.configure(api_key="AIzaSyAOZRzjgX6LSv6FuG3pCmg-kmXJ8guYIdk")
-
-def build_ai_agent(tasks: str, user_email: str) -> Dict[str, Any]:
-    """
-    Build an AI agent using Gemini API and RAG workflow based on specified tasks.
-    Generates and runs a Streamlit application.
-    """
-    try:
-        # Load the FAISS index and texts
-
-        # Create prompt for Gemini to generate the Streamlit app
-        prompt = f"""
-        Create a Streamlit application that implements the following task using RAG workflow:
-        {tasks}
-        
-        1. The application should include these part of code in the beginning
-        import google.generativeai as genai
-        # Initialize Gemini
-        genai.configure(api_key="")
-        model = genai.GenerativeModel('gemini-pro')
-
-        import faiss
-        Load FAISS for RAG
-        TEMP_DIR=r"D:\Sem-5\rak\temp_data"
-        def load_data():
-            index = faiss.read_index(os.path.join(TEMP_DIR, "faiss_index.bin"))
-            with open(os.path.join(TEMP_DIR, "texts.pkl"), "rb") as f:
-                texts = pickle.load(f)
-            return index, texts
-
-        2. Complete the code for specified task
-        3. Include proper error handling
-        4. Have a clean user interface
-        5. Display results appropriately for the task
-        
-        Return only the Python code without any explanations.
-        """
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        # Generate Streamlit code using Gemini
-        response = model.generate_content(prompt)
-        app_code = response.text
-        
-        # Add necessary imports and Gemini setup
-        filtered_lines = app_code.splitlines()[2:-2]
-
-        # Join the filtered lines back into a string
-        final_app_code = "\n".join(filtered_lines)
-        
-        # Save the generated Streamlit app
-        app_filepath = os.path.join(TEMP_DIR, f"agent_app_{user_email}.py")
-        with open(app_filepath, "w") as f:
-            f.write(final_app_code)
-        
-        # Run the Streamlit app
-        port = 8501  # Default Streamlit port
-        streamlit_cmd = f"python -m streamlit run {app_filepath} --server.port {port}"
-        Popen(streamlit_cmd, shell=True)
-        
-        # Open browser to the Streamlit app
-        webbrowser.open(f"http://localhost:{port}")
-            
-        return {
-            "status": "success",
-            "message": "AI agent built and launched successfully",
-            "app_filepath": app_filepath,
-            "app_url": f"http://localhost:{port}"
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error building AI agent: {str(e)}"
-        }
-
-# Flask route
-@app.route('/build-agent', methods=['POST'])
-def build_agent_route():
-    data = request.json
-    tasks = data.get('tasks')
-    user_email = data.get('userEmail')
     
-    if not all([tasks, user_email]):
-        return jsonify({"error": "Missing required fields"}), 400
-        
-    try:
-        result = build_ai_agent(tasks, user_email)
-        
-        if result["status"] == "success":
-            return jsonify({
-                "message": result["message"],
-                "app_url": result["app_url"]
-            }), 200
-        else:
-            return jsonify({"error": result["message"]}), 500
-            
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+from flask import Flask, request, jsonify
+from typing import Dict, Any
+import json
 
+class AIAgent:
+    def __init__(self, task_description: str, relevant_chunks: list):
+        self.task_description = task_description
+        self.context = relevant_chunks
+        self.model = setup_gemini()
+        self.task_config = self._analyze_task()
+        
+    def _analyze_task(self) -> Dict[str, Any]:
+        """Analyze task description to determine configuration"""
+        analysis_prompt = f"""Analyze the following task description and create a structured configuration:
+
+Task: {self.task_description}
+
+Generate a JSON configuration with:
+1. Task type classification
+2. Required parameters
+3. Expected input/output format
+4. Evaluation criteria if applicable
+5. Response format specification"""
+
+        response = self.model.generate_content(analysis_prompt)
+        try:
+            return json.loads(response.text)
+        except json.JSONDecodeError:
+            # Fallback to default configuration
+            return {
+                "type": "general",
+                "parameters": {},
+                "input_format": "text",
+                "output_format": "text",
+                "evaluation_criteria": []
+            }
+
+    def generate_execution_prompt(self, input_data: Any) -> str:
+        return f"""Task Context:
+{self.task_description}
+
+Reference Knowledge:
+{' '.join(self.context)}
+
+Configuration:
+{json.dumps(self.task_config, indent=2)}
+
+Input:
+{input_data}
+
+Please execute the task and provide a response following the configuration specifications."""
+
+    def execute(self, input_data: Any) -> Dict[str, Any]:
+        prompt = self.generate_execution_prompt(input_data)
+        response = self.model.generate_content(prompt)
+        
+        try:
+            return json.loads(response.text)
+        except json.JSONDecodeError:
+            return {
+                "result": response.text,
+                "format": "text"
+            }
+
+    def generate_automation_code(self) -> str:
+        code_prompt = f"""Generate a Python function that automates the following task:
+
+Task Description:
+{self.task_description}
+
+Configuration:
+{json.dumps(self.task_config, indent=2)}
+
+Requirements:
+1. Function should handle input validation
+2. Integrate with the existing RAG system
+3. Process the task using the configured parameters
+4. Return results in the specified format
+5. Include error handling
+6. Add clear documentation
+
+Generate production-ready code with type hints and docstrings."""
+
+        response = self.model.generate_content(code_prompt)
+        return response.text
+
+@app.route('/build-agent', methods=['POST'])
+def build_ai_agent():
+    try:
+        data = request.json
+        tasks = data.get('tasks')
+        llm_id = data.get('llmId')
+        user_email = data.get('userEmail')
+        
+        if not all([tasks, llm_id, user_email]):
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        # Load the specified LLM data
+        llm_doc = db.collection('llms').document(llm_id).get()
+        
+        if not llm_doc.exists:
+            return jsonify({'error': 'LLM not found'}), 404
+            
+        # Get relevant chunks for the task
+        index, texts = load_data()
+        relevant_chunks = get_relevant_chunks(tasks, index, texts, top_k=5)
+        
+        # Create AI agent
+        agent = AIAgent(tasks, relevant_chunks)
+        
+        # Generate automation code
+        automation_code = agent.generate_automation_code()
+        
+        # Create agent document
+        agent_doc = {
+            'taskDescription': tasks,
+            'llmId': llm_id,
+            'userEmail': user_email,
+            'configuration': agent.task_config,
+            'automationCode': automation_code,
+            'createdAt': firestore.SERVER_TIMESTAMP
+        }
+        
+        # Save to Firestore
+        agent_ref = db.collection('agents').add(agent_doc)
+        
+        response = {
+            'message': 'AI agent built successfully',
+            'agentId': agent_ref.id,
+            'configuration': agent.task_config,
+            'automationCode': automation_code
+        }
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Example execution endpoint for the created agent
+@app.route('/execute-agent/<agent_id>', methods=['POST'])
+def execute_agent(agent_id):
+    try:
+        data = request.json
+        input_data = data.get('input')
+        
+        if not input_data:
+            return jsonify({'error': 'Input data is required'}), 400
+            
+        # Get agent configuration
+        agent_doc = db.collection('agents').document(agent_id).get()
+        
+        if not agent_doc.exists:
+            return jsonify({'error': 'Agent not found'}), 404
+            
+        agent_data = agent_doc.to_dict()
+        
+        # Load RAG data
+        index, texts = load_data()
+        
+        # Create agent instance
+        agent = AIAgent(agent_data['taskDescription'], texts)
+        
+        # Execute task
+        result = agent.execute(input_data)
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     
 if __name__ == '__main__':
     app.run(debug=True)
